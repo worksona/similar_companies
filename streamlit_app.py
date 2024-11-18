@@ -315,28 +315,24 @@ def main():
         with tabs[0]:
             st.header("Company Analysis Specialist")
             st.markdown("**Role**: Analyze target company characteristics")
-            st.markdown("**Results**:")
             st.markdown(st.session_state.analysis_results['company_profile'])
         
         # Market Research Tab
         with tabs[1]:
             st.header("Market Research Expert")
             st.markdown("**Role**: Identify similar companies")
-            st.markdown("**Results**:")
             st.markdown(st.session_state.analysis_results['company_list'])
         
         # Similarity Evaluation Tab
         with tabs[2]:
             st.header("Company Similarity Evaluator")
             st.markdown("**Role**: Score company similarities")
-            st.markdown("**Results**:")
             st.markdown(st.session_state.analysis_results['evaluated_list'])
         
         # Sales Strategy Tab
         with tabs[3]:
             st.header("Sales Approach Strategist")
             st.markdown("**Role**: Develop sales recommendations")
-            st.markdown("**Results**:")
             st.markdown(st.session_state.analysis_results['sales_strategy'])
         
         # Final Report Tab
@@ -368,14 +364,12 @@ def main():
             
             # Display the selected content
             st.markdown("### Selected Content:")
-            with st.expander("View Content", expanded=True):
-                st.markdown(get_chat_context(selected_context))
+            st.markdown(get_chat_context(selected_context))
             
             # Chat interface
             query = st.text_input("Ask a question about the analysis")
             if st.button("Submit"):
                 response = chat_with_results(openai_key, model, query, selected_context)
-                st.markdown("**Response:**")
                 st.markdown(response)
                 st.session_state.chat_history.append({
                     "query": query,
@@ -405,7 +399,6 @@ def main():
             else:
                 with st.spinner("Processing..."):
                     chat_result = open_chat(openai_key, model, chat_query)
-                    st.markdown("### Response")
                     st.markdown(chat_result)
                     
                     # Store in search history
@@ -419,8 +412,7 @@ def main():
             with st.expander("Chat History", expanded=True):
                 for chat in reversed(st.session_state.search_history):
                     st.markdown(f"**You:** {chat['query']}")
-                    st.markdown(f"**Assistant:**")
-                    st.markdown(chat['result'])
+                    st.markdown(f"**Assistant:** {chat['result']}")
                     st.markdown("---")
 
 if __name__ == "__main__":
