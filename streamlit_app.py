@@ -5,7 +5,10 @@ import os
 import requests
 import json
 
+# Load environment variables
 load_dotenv()
+DEFAULT_OPENAI_KEY = os.getenv('OPENAI_API_KEY', '')
+DEFAULT_SERPER_KEY = os.getenv('SERPER_API_KEY', '')
 
 # Updated model list to match requested models
 OPENAI_MODELS = [
@@ -281,8 +284,8 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("Settings")
-        openai_key = st.text_input("OpenAI API Key", type="password")
-        serper_key = st.text_input("Serper API Key", type="password")
+        openai_key = st.text_input("OpenAI API Key", value=DEFAULT_OPENAI_KEY, type="password")
+        serper_key = st.text_input("Serper API Key", value=DEFAULT_SERPER_KEY, type="password")
         model = st.selectbox("Model", OPENAI_MODELS)
         company_name = st.text_input("Company Name")
         product_desc = st.text_area("Product Description")
