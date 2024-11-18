@@ -2,6 +2,8 @@ import streamlit as st
 import openai
 from dotenv import load_dotenv
 import os
+import requests
+import json
 
 load_dotenv()
 
@@ -19,11 +21,20 @@ OPENAI_MODELS = [
 AGENT_PROMPTS = {
     "company_analyst": """role: Company Analysis Specialist
 goal: Analyze the target company to identify key characteristics for comparison
-task: Conduct a comprehensive analysis of {target_company}. Focus on key characteristics such as industry, size, location, product offerings, target market, and any unique attributes. Consider how these characteristics might relate to their potential need for {our_product}.""",
+task: Using the provided search results about {target_company}, conduct a comprehensive analysis. Focus on key characteristics such as industry, size, location, product offerings, target market, and any unique attributes. Consider how these characteristics might relate to their potential need for {our_product}.
+
+Search Results:
+{search_results}""",
 
     "market_researcher": """role: Market Research Expert
-goal: Research potential companies similar to the target company
-task: Using the profile of {target_company}, research and search for and identify other companies that share similar characteristics. Look for companies in the same or adjacent industries, of similar size, with comparable product offerings or target markets. Aim to find at least 10 potential matches.""",
+goal: Identify potential companies similar to the target company
+task: Using the profile of {target_company} and the search results for similar companies, identify and analyze companies that share similar characteristics. Look for companies in the same or adjacent industries, of similar size, with comparable product offerings or target markets. Aim to find at least 10 potential matches.
+
+Company Profile:
+{company_profile}
+
+Search Results for Similar Companies:
+{search_results}""",
 
     "similarity_evaluator": """role: Company Similarity Evaluator
 goal: Assess and score the similarity between companies
@@ -50,6 +61,44 @@ def initialize_session_state():
     if 'search_history' not in st.session_state:
         st.session_state.search_history = []
 
+def serper_search(api_key, query, num_results=10):
+    """
+    Perform a search using the Serper API
+    """
+    url = "https://google.serper.dev/search"
+    headers = {
+        'X-API-KEY': api_key,
+        'Content-Type': 'application/json'
+    }
+    payload = {
+        'q': query,
+        'num': num_results
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        return response.json()
+    except Exception as e:
+        return f"Error performing search: {str(e)}"
+
+def format_serper_results(results):
+    """
+    Format Serper API results into a readable string
+    """
+    if isinstance(results, str):  # If there was an error
+        return results
+    
+    formatted = []
+    if 'organic' in results:
+        for item in results['organic']:
+            formatted.append(f"Title: {item.get('title', 'N/A')}")
+            formatted.append(f"Snippet: {item.get('snippet', 'N/A')}")
+            formatted.append(f"Link: {item.get('link', 'N/A')}")
+            formatted.append("---")
+    
+    return "\n".join(formatted)
+
 def run_agent(client, model, prompt, context=""):
     messages = [{"role": "system", "content": prompt}]
     if context:
@@ -74,48 +123,32 @@ def run_agent(client, model, prompt, context=""):
     )
     return response.choices[0].message.content
 
-def web_search(client, model, query):
-    """
-    Perform a web search using OpenAI's capabilities and return formatted results
-    """
-    search_prompt = f"""You are a web search assistant. Search the web for information about: {query}
-    
-    Please provide:
-    1. A comprehensive summary of the findings
-    2. Key facts and data points
-    3. Relevant sources or references if available
-    4. Any additional insights that might be valuable
-    
-    Format the response in a clear, organized manner."""
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4-turbo-preview",  # Using GPT-4 Turbo for better search capabilities
-            messages=[
-                {"role": "system", "content": "You are a web search assistant with access to current information."},
-                {"role": "user", "content": search_prompt}
-            ]
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        return f"Error performing web search: {str(e)}"
-
-def run_analysis(api_key, model, company_name, product_desc):
-    client = openai.Client(api_key=api_key)
+def run_analysis(openai_key, serper_key, model, company_name, product_desc):
+    client = openai.Client(api_key=openai_key)
     results = {}
     
-    # Company Analysis Specialist
+    # Company Analysis Specialist with Serper search
+    company_search_results = serper_search(serper_key, f"{company_name} company information business details")
+    formatted_company_results = format_serper_results(company_search_results)
+    
     analyst_prompt = AGENT_PROMPTS["company_analyst"].format(
         target_company=company_name,
-        our_product=product_desc
+        our_product=product_desc,
+        search_results=formatted_company_results
     )
     results['company_profile'] = run_agent(client, model, analyst_prompt)
     
-    # Market Research Expert
+    # Market Research Expert with Serper search
+    similar_companies_query = f"companies similar to {company_name} same industry competitors"
+    similar_companies_results = serper_search(serper_key, similar_companies_query)
+    formatted_similar_results = format_serper_results(similar_companies_results)
+    
     researcher_prompt = AGENT_PROMPTS["market_researcher"].format(
-        target_company=company_name
+        target_company=company_name,
+        company_profile=results['company_profile'],
+        search_results=formatted_similar_results
     )
-    results['company_list'] = run_agent(client, model, researcher_prompt, results['company_profile'])
+    results['company_list'] = run_agent(client, model, researcher_prompt)
     
     # Company Similarity Evaluator
     evaluator_prompt = AGENT_PROMPTS["similarity_evaluator"].format(
@@ -222,6 +255,24 @@ def chat_with_results(api_key, model, query, context_type='all'):
     )
     return response.choices[0].message.content
 
+def open_chat(api_key, model, query):
+    """
+    Open chat functionality using OpenAI
+    """
+    client = openai.Client(api_key=api_key)
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4-turbo-preview",
+            messages=[
+                {"role": "system", "content": "You are a helpful assistant ready to discuss any topic."},
+                {"role": "user", "content": query}
+            ]
+        )
+        return response.choices[0].message.content
+    except Exception as e:
+        return f"Error in chat: {str(e)}"
+
 def main():
     st.title("Similar Company Finder")
     
@@ -230,18 +281,19 @@ def main():
     # Sidebar
     with st.sidebar:
         st.header("Settings")
-        api_key = st.text_input("OpenAI API Key", type="password")
+        openai_key = st.text_input("OpenAI API Key", type="password")
+        serper_key = st.text_input("Serper API Key", type="password")
         model = st.selectbox("Model", OPENAI_MODELS)
         company_name = st.text_input("Company Name")
         product_desc = st.text_area("Product Description")
         
         if st.button("Run Analysis"):
-            if not all([api_key, company_name, product_desc]):
+            if not all([openai_key, serper_key, company_name, product_desc]):
                 st.error("Please fill in all fields")
                 return
                 
             with st.spinner("Running analysis..."):
-                results = run_analysis(api_key, model, company_name, product_desc)
+                results = run_analysis(openai_key, serper_key, model, company_name, product_desc)
                 st.success("Analysis complete!")
     
     # Main content area with tabs
@@ -251,8 +303,8 @@ def main():
         "Similarity Evaluation",
         "Sales Strategy",
         "Final Report",
-        "Chat with Results",  # Renamed from "Chat"
-        "Open Chat"  # Renamed from "Web Search"
+        "Chat with Results",
+        "Open Chat"
     ])
     
     if st.session_state.analysis_results['final_report']:
@@ -319,7 +371,7 @@ def main():
             # Chat interface
             query = st.text_input("Ask a question about the analysis")
             if st.button("Submit"):
-                response = chat_with_results(api_key, model, query, selected_context)
+                response = chat_with_results(openai_key, model, query, selected_context)
                 st.markdown("**Response:**")
                 st.markdown(response)
                 st.session_state.chat_history.append({
@@ -336,37 +388,36 @@ def main():
                     st.markdown(f"**A:** {chat['response']}")
                     st.markdown("---")
     
-    # Open Chat Tab (renamed from "Web Search")
+    # Open Chat Tab
     with tabs[6]:
         st.header("Open Chat")
         st.markdown("Chat openly about any topic using OpenAI's capabilities.")
         
-        search_query = st.text_input("Enter your message")
+        chat_query = st.text_input("Enter your message")
         if st.button("Send"):
-            if not api_key:
+            if not openai_key:
                 st.error("Please enter your OpenAI API key in the sidebar settings.")
-            elif not search_query:
+            elif not chat_query:
                 st.error("Please enter a message.")
             else:
                 with st.spinner("Processing..."):
-                    client = openai.Client(api_key=api_key)
-                    search_result = web_search(client, model, search_query)
+                    chat_result = open_chat(openai_key, model, chat_query)
                     st.markdown("### Response")
-                    st.markdown(search_result)
+                    st.markdown(chat_result)
                     
                     # Store in search history
                     st.session_state.search_history.append({
-                        "query": search_query,
-                        "result": search_result
+                        "query": chat_query,
+                        "result": chat_result
                     })
         
         # Chat History
         if st.session_state.search_history:
             with st.expander("Chat History", expanded=True):
-                for search in reversed(st.session_state.search_history):
-                    st.markdown(f"**You:** {search['query']}")
+                for chat in reversed(st.session_state.search_history):
+                    st.markdown(f"**You:** {chat['query']}")
                     st.markdown(f"**Assistant:**")
-                    st.markdown(search['result'])
+                    st.markdown(chat['result'])
                     st.markdown("---")
 
 if __name__ == "__main__":
